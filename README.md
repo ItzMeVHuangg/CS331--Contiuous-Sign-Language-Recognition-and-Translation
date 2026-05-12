@@ -66,11 +66,11 @@ The following table summarizes the Word Error Rate (WER) performance of 9 differ
 | 4 | Mediapipe | BiLSTM | Beam Search | **E** | **56.51%** | Done |
 | 5 | Video Swin-T | BiLSTM | Beam Search | **G** | **37.35%** | **Best overall** |
 | 6 | Video Swin-T | Transformer | Beam Search | **H** | **~38.18%** | Abnormal loss spike (E71) |
-| 7 | ResNet34 | BiLSTM | Greedy | *-* | *-* | ⏳ *Pending execution* |
+| 7 | ResNet34 | BiLSTM | Greedy | *A** | *24.84%* |  |
 | 8 | R3D-18 (ResNet-3D) | BiLSTM | Beam Search | **C** | **60.30%** | Done |
 | 9 | R3D-18 (ResNet-3D) | Transformer | Beam Search | **D** | **~60.49%** | Incomplete (E77/80) |
 
-> *Note: Variant **B*** represents a tuned version of Variant B (originally 69.66%) with an optimized Learning Rate schedule.*
+> *Note: Variant **B***, **A*** represents a tuned version of Variant A, B (originally 42.66%, 69.66%) with an optimized Learning Rate schedule.*
 
 ---
 
