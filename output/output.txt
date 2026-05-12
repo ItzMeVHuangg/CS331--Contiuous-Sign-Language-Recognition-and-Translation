@@ -1,0 +1,61 @@
+Job 21712 chạy trên GPU: 7
+[Stream 1] Device: cuda
+[Vocab] Gloss vocab size :  1090  (from PHOENIX-2014-T.train.corpus.csv)
+[Vocab] Text  vocab size :  2892  (from PHOENIX-2014-T.train.corpus.csv)
+[PhoenixDataset] split=train | 7096 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/train
+[PhoenixDataset] split=dev   |  519 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/dev
+[Model] Total params: 29,053,576
+Epoch   1/60 | Train Loss: 9.1946 | Val Loss: 4.7443 | WER: 99.33%
+  [ckpt] Best saved (WER=99.33%)
+Epoch   2/60 | Train Loss: 4.2492 | Val Loss: 3.9479 | WER: 88.55%
+  [ckpt] Best saved (WER=88.55%)
+Epoch   3/60 | Train Loss: 3.4310 | Val Loss: 3.5284 | WER: 73.43%
+  [ckpt] Best saved (WER=73.43%)
+Epoch   4/60 | Train Loss: 2.8726 | Val Loss: 3.0848 | WER: 64.27%
+  [ckpt] Best saved (WER=64.27%)
+Epoch   5/60 | Train Loss: 2.4710 | Val Loss: 3.0959 | WER: 61.58%
+  [ckpt] Best saved (WER=61.58%)
+Epoch   6/60 | Train Loss: 2.1089 | Val Loss: 2.5550 | WER: 55.66%
+  [ckpt] Best saved (WER=55.66%)
+Epoch   7/60 | Train Loss: 1.7619 | Val Loss: 2.5104 | WER: 53.09%
+  [ckpt] Best saved (WER=53.09%)
+Epoch   8/60 | Train Loss: 1.4936 | Val Loss: 2.4306 | WER: 50.24%
+  [ckpt] Best saved (WER=50.24%)
+Epoch   9/60 | Train Loss: 1.2584 | Val Loss: 2.3788 | WER: 48.99%
+  [ckpt] Best saved (WER=48.99%)
+Epoch  10/60 | Train Loss: 1.0735 | Val Loss: 2.3894 | WER: 49.41%
+Epoch  11/60 | Train Loss: 0.9301 | Val Loss: 2.6347 | WER: 51.52%
+Epoch  12/60 | Train Loss: 0.7871 | Val Loss: 2.5718 | WER: 49.55%
+Epoch  13/60 | Train Loss: 0.6923 | Val Loss: 2.6277 | WER: 49.79%
+Epoch  14/60 | Train Loss: 0.6054 | Val Loss: 2.7409 | WER: 49.76%
+Epoch  15/60 | Train Loss: 0.5182 | Val Loss: 2.8687 | WER: 51.09%
+Epoch  16/60 | Train Loss: 0.4577 | Val Loss: 2.7916 | WER: 48.43%
+  [ckpt] Best saved (WER=48.43%)
+Epoch  17/60 | Train Loss: 0.4161 | Val Loss: 2.9171 | WER: 48.83%
+Epoch  18/60 | Train Loss: 0.3854 | Val Loss: 3.0848 | WER: 50.88%
+Epoch  19/60 | Train Loss: 0.3399 | Val Loss: 3.0908 | WER: 48.59%
+Epoch  20/60 | Train Loss: 0.3119 | Val Loss: 3.1220 | WER: 48.00%
+  [ckpt] Best saved (WER=48.00%)
+Epoch  21/60 | Train Loss: 0.2867 | Val Loss: 3.1986 | WER: 48.27%
+Epoch  22/60 | Train Loss: 0.2657 | Val Loss: 3.3993 | WER: 49.36%
+Epoch  23/60 | Train Loss: 0.2493 | Val Loss: 3.4504 | WER: 48.32%
+Epoch  24/60 | Train Loss: 0.2227 | Val Loss: 3.5794 | WER: 50.11%
+Epoch  25/60 | Train Loss: 0.2132 | Val Loss: 3.6230 | WER: 49.07%
+Epoch  26/60 | Train Loss: 0.1930 | Val Loss: 3.4960 | WER: 47.49%
+  [ckpt] Best saved (WER=47.49%)
+Epoch  27/60 | Train Loss: 0.1805 | Val Loss: 3.5959 | WER: 48.11%
+Epoch  28/60 | Train Loss: 0.1711 | Val Loss: 3.6367 | WER: 47.60%
+Epoch  29/60 | Train Loss: 0.1461 | Val Loss: 3.9069 | WER: 50.24%
+Epoch  30/60 | Train Loss: 0.1474 | Val Loss: 3.8249 | WER: 48.51%
+Epoch  31/60 | Train Loss: 0.1340 | Val Loss: 3.8594 | WER: 47.33%
+  [ckpt] Best saved (WER=47.33%)
+Epoch  32/60 | Train Loss: 0.1258 | Val Loss: 3.8770 | WER: 46.58%
+  [ckpt] Best saved (WER=46.58%)
+Epoch  33/60 | Train Loss: 0.1166 | Val Loss: 4.0207 | WER: 47.71%
+Epoch  34/60 | Train Loss: 0.1141 | Val Loss: 3.9760 | WER: 46.61%
+Epoch  35/60 | Train Loss: 0.0961 | Val Loss: 4.0010 | WER: 45.70%
+  [ckpt] Best saved (WER=45.70%)
+Epoch  36/60 | Train Loss: 0.0957 | Val Loss: 4.1215 | WER: 46.61%
+Epoch  37/60 | Train Loss: 0.0874 | Val Loss: 4.1073 | WER: 45.81%
+Epoch  38/60 | Train Loss: 0.0837 | Val Loss: 4.2443 | WER: 46.02%
+Epoch  39/60 | Train Loss: 0.0696 | Val Loss: 4.2427 | WER: 45.94%

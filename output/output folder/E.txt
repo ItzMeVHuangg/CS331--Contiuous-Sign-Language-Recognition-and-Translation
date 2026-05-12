@@ -1,0 +1,101 @@
+Job 14528 chạy trên GPU: 4
+Device: cuda
+  GPU  : NVIDIA L40
+  VRAM : 47.7 GB
+[Vocab] Gloss vocab size :  1090  (from PHOENIX-2014-T.train.corpus.csv)
+[Vocab] Text  vocab size :  2892  (from PHOENIX-2014-T.train.corpus.csv)
+
+================================================================
+CSLR Variant E: MediaPipe Keypoints + BiLSTM
+================================================================
+[PhoenixDataset] split=train | 7096 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/train
+[PhoenixDataset] split=dev   |  519 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/dev
+  Params total    : 12,294,978
+  Params trainable: 12,294,978
+  [Variant-E] CSLR E1/80 | Loss=22.7455 | WER=100.00%
+  [Variant-E] CSLR E2/80 | Loss=5.5075 | WER=100.00%
+  [Variant-E] CSLR E3/80 | Loss=5.3099 | WER=100.00%
+  [Variant-E] CSLR E4/80 | Loss=5.1157 | WER=100.00%
+  [Variant-E] CSLR E5/80 | Loss=4.9416 | WER=100.00%
+  [Variant-E] CSLR E6/80 | Loss=4.7253 | WER=99.97%
+  [Variant-E] CSLR E7/80 | Loss=4.4777 | WER=99.63%
+  [Variant-E] CSLR E8/80 | Loss=4.2502 | WER=99.15%
+  [Variant-E] CSLR E9/80 | Loss=4.0427 | WER=98.72%
+  [Variant-E] CSLR E10/80 | Loss=3.8392 | WER=97.79%
+  [Variant-E] CSLR E11/80 | Loss=3.6443 | WER=96.91%
+  [Variant-E] CSLR E12/80 | Loss=3.4528 | WER=94.05%
+  [Variant-E] CSLR E13/80 | Loss=3.2777 | WER=92.93%
+  [Variant-E] CSLR E14/80 | Loss=3.1147 | WER=90.23%
+  [Variant-E] CSLR E15/80 | Loss=2.9503 | WER=88.21%
+  [Variant-E] CSLR E16/80 | Loss=2.8005 | WER=85.57%
+  [Variant-E] CSLR E17/80 | Loss=2.6501 | WER=83.24%
+  [Variant-E] CSLR E18/80 | Loss=2.5045 | WER=80.95%
+  [Variant-E] CSLR E19/80 | Loss=2.3815 | WER=78.76%
+  [Variant-E] CSLR E20/80 | Loss=2.2504 | WER=77.11%
+  [Variant-E] CSLR E21/80 | Loss=2.1292 | WER=75.56%
+  [Variant-E] CSLR E22/80 | Loss=2.0167 | WER=73.11%
+  [Variant-E] CSLR E23/80 | Loss=1.9081 | WER=72.23%
+  [Variant-E] CSLR E24/80 | Loss=1.8004 | WER=70.57%
+  [Variant-E] CSLR E25/80 | Loss=1.6968 | WER=70.46%
+  [Variant-E] CSLR E26/80 | Loss=1.6052 | WER=68.65%
+  [Variant-E] CSLR E27/80 | Loss=1.5130 | WER=66.94%
+  [Variant-E] CSLR E28/80 | Loss=1.4255 | WER=65.85%
+  [Variant-E] CSLR E29/80 | Loss=1.3503 | WER=65.45%
+  [Variant-E] CSLR E30/80 | Loss=1.2741 | WER=64.57%
+  [Variant-E] CSLR E31/80 | Loss=1.2000 | WER=64.86%
+  [Variant-E] CSLR E32/80 | Loss=1.1380 | WER=62.59%
+  [Variant-E] CSLR E33/80 | Loss=1.0737 | WER=63.10%
+  [Variant-E] CSLR E34/80 | Loss=1.0153 | WER=60.54%
+  [Variant-E] CSLR E35/80 | Loss=0.9566 | WER=60.25%
+  [Variant-E] CSLR E36/80 | Loss=0.9076 | WER=60.70%
+  [Variant-E] CSLR E37/80 | Loss=0.8575 | WER=61.13%
+  [Variant-E] CSLR E38/80 | Loss=0.8193 | WER=59.82%
+  [Variant-E] CSLR E39/80 | Loss=0.7718 | WER=60.22%
+  [Variant-E] CSLR E40/80 | Loss=0.7345 | WER=59.69%
+  [Variant-E] CSLR E41/80 | Loss=0.6963 | WER=59.69%
+  [Variant-E] CSLR E42/80 | Loss=0.6562 | WER=58.86%
+  [Variant-E] CSLR E43/80 | Loss=0.6242 | WER=58.38%
+  [Variant-E] CSLR E44/80 | Loss=0.5977 | WER=58.70%
+  [Variant-E] CSLR E45/80 | Loss=0.5666 | WER=58.62%
+  [Variant-E] CSLR E46/80 | Loss=0.5417 | WER=58.43%
+  [Variant-E] CSLR E47/80 | Loss=0.5158 | WER=57.90%
+  [Variant-E] CSLR E48/80 | Loss=0.4965 | WER=58.35%
+  [Variant-E] CSLR E49/80 | Loss=0.4709 | WER=57.39%
+  [Variant-E] CSLR E50/80 | Loss=0.4597 | WER=58.35%
+  [Variant-E] CSLR E51/80 | Loss=0.4314 | WER=57.44%
+  [Variant-E] CSLR E52/80 | Loss=0.4111 | WER=57.66%
+  [Variant-E] CSLR E53/80 | Loss=0.4002 | WER=57.28%
+  [Variant-E] CSLR E54/80 | Loss=0.3781 | WER=57.12%
+  [Variant-E] CSLR E55/80 | Loss=0.3664 | WER=57.04%
+  [Variant-E] CSLR E56/80 | Loss=0.3532 | WER=57.28%
+  [Variant-E] CSLR E57/80 | Loss=0.3432 | WER=56.96%
+  [Variant-E] CSLR E58/80 | Loss=0.3294 | WER=56.88%
+  [Variant-E] CSLR E59/80 | Loss=0.3215 | WER=56.51%
+  [Variant-E] CSLR E60/80 | Loss=0.3110 | WER=57.26%
+  [Variant-E] CSLR E61/80 | Loss=0.3034 | WER=56.99%
+  [Variant-E] CSLR E62/80 | Loss=0.2922 | WER=56.88%
+  [Variant-E] CSLR E63/80 | Loss=0.2857 | WER=57.12%
+  [Variant-E] CSLR E64/80 | Loss=0.2772 | WER=56.86%
+  [Variant-E] CSLR E65/80 | Loss=0.2711 | WER=56.80%
+  [Variant-E] CSLR E66/80 | Loss=0.2655 | WER=56.94%
+  [Variant-E] CSLR E67/80 | Loss=0.2586 | WER=56.96%
+  [Variant-E] CSLR E68/80 | Loss=0.2555 | WER=56.80%
+  [Variant-E] CSLR E69/80 | Loss=0.2479 | WER=56.94%
+  [Variant-E] CSLR E70/80 | Loss=0.2464 | WER=56.86%
+  [Variant-E] CSLR E71/80 | Loss=0.2471 | WER=56.72%
+  [Variant-E] CSLR E72/80 | Loss=0.2416 | WER=56.86%
+  [Variant-E] CSLR E73/80 | Loss=0.2379 | WER=57.10%
+  [Variant-E] CSLR E74/80 | Loss=0.2365 | WER=56.91%
+  [Variant-E] Early stopping at epoch 74
+
+[Variant E] Best WER = 56.51%
+
+========================================================================
+CSLR ABLATION RESULTS
+========================================================================
+Var   Encoder            Seq Model               WER (%)
+------------------------------------------------------------------------
+  E   MediaPipe-TCN      BiLSTM                    56.51
+========================================================================
+
+Full results → checkpoints/ablation/ablation_results.json

@@ -1,0 +1,46 @@
+Job 22777 running on GPU: 2
+========================================================
+ Dual-Stream CSLR + SLT
+ Stream 1 : ResNet34-2D + BiLSTM  (frozen initially)
+            Loaded from: /datastore/cndt_phungdtm/KLTN_HoangBinh/MBinh/checkpoints/ablation/cslr_variant_A.pth  (24.84% WER)
+ Stream 2 : Video Swin-T + BiLSTM  (loaded from Variant G, NOT from scratch)
+            Loaded from: /datastore/cndt_phungdtm/KLTN_HoangBinh/VHuangg/checkpoints/ablation/Variant_G_path/best_path/best_path_33.pth
+ Fusion   : Cross-Attention
+ SLT      : LateFusion + Transformer-2D
+ Config   : /datastore/cndt_phungdtm/KLTN_HoangBinh/VHuangg/configs/config.yaml
+========================================================
+
+Device : cuda
+GPU    : NVIDIA A100-SXM4-80GB
+VRAM   : 85.1 GB
+[Vocab] Gloss vocab size :  1090  (from PHOENIX-2014-T.train.corpus.csv)
+[Vocab] Text  vocab size :  2892  (from PHOENIX-2014-T.train.corpus.csv)
+Vocab  : gloss=1090 | text=2892
+
+============================================================
+ Dual-Stream CSLR: ResNet34-2D + Video Swin-T
+============================================================
+
+Loading stream1 from: /datastore/cndt_phungdtm/KLTN_HoangBinh/MBinh/checkpoints/ablation/cslr_variant_A.pth
+[DualStream] Loaded stream1 weights from: /datastore/cndt_phungdtm/KLTN_HoangBinh/MBinh/checkpoints/ablation/cslr_variant_A.pth
+  Loaded keys  : 23
+  Missing keys : 217
+    First 5: ['swin_encoder.patch_embed.proj.weight', 'swin_encoder.patch_embed.proj.bias', 'swin_encoder.patch_embed.norm.weight', 'swin_encoder.patch_embed.norm.bias', 'swin_encoder.stages.0.0.norm1.weight']
+
+Loading stream2 (Swin+BiLSTM2) from: /datastore/cndt_phungdtm/KLTN_HoangBinh/VHuangg/checkpoints/ablation/Variant_G_path/best_path/best_path_33.pth
+[DualStream] Loaded stream2 (Swin+BiLSTM2) from: /datastore/cndt_phungdtm/KLTN_HoangBinh/VHuangg/checkpoints/ablation/Variant_G_path/best_path/best_path_33.pth
+  Keys mapped    : 209
+  Keys loaded OK : 209
+  Keys missing   : 212  (keys in DualCSLR not in ckpt -- expected for new layers)
+  Keys skipped   : 0
+  [OK] All mapped keys loaded successfully -- stream2 using Variant G weights.
+
+  Params total    : 72,168,172
+  Params trainable: 72,168,172  (after stream1 load, before freeze)
+[PhoenixDataset] split=train | 7096 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/train
+[PhoenixDataset] split=dev   |  519 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/dev
+[DualStream] Stream1 (ResNet34 + BiLSTM1) FROZEN.
+
+[DualCSLR] Starting epoch 1/80
+  Freeze epochs=15 | λ1=0.3 λ2=0.1 λf=0.6
+  Loss weights: stream1×0.3, stream2×0.1, fused×0.6

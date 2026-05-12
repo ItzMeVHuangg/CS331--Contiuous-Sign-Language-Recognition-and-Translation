@@ -1,0 +1,251 @@
+# ─── REPRODUCIBILITY ─────────────────────────────────────────────────────────
+#seed: 42
+
+# ─── PATHS ───────────────────────────────────────────────────────────────────
+paths:
+  phoenix_root:         "/datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T"
+  frames_root:          "/datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px"
+  annot_root:           "/datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/annotations/manual"
+  mediapipe_kpts_root:  "/datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/keypoints"
+  checkpoint_dir:       "checkpoints"
+  log_dir:              "logs"
+
+# ─── DATA ────────────────────────────────────────────────────────────────────
+data:
+  img_height: 224              # 224×224: chuẩn ImageNet, tốt hơn 192 cho pretrained ResNet/Swin
+  img_width:  224
+
+  num_workers: 4
+  pin_memory: true
+  prefetch_factor: 2
+
+  # 256 frames: đủ cho Video Swin (clip_len=16, stride=8 → T'=30 clips)
+  # và cho BiLSTM (max temporal context ~8.5 giây @ 30fps)
+  max_frames: 256
+  temporal_stride: 1
+
+  augmentation:
+    random_crop: true
+    horizontal_flip: 0.5
+    color_jitter:
+      brightness: 0.3
+      contrast:   0.3
+      saturation: 0.1
+      hue:        0.05
+    random_erasing: 0.2
+    random_affine:
+      degrees: 5
+      translate: [0.05, 0.05]
+      scale: [0.95, 1.05]
+
+
+# ─── VISUAL ENCODERS ─────────────────────────────────────────────────────────
+
+# Encoder A/B: ResNet18-2D (Baseline)
+cnn:
+  backbone: "resnet18"
+  pretrained: true
+  freeze_bn: false
+  out_features: 512            # (B*T, 512)
+
+# Encoder C/D: R3D-18 (3D-CNN clip-based)
+cnn_3d:
+  backbone: "r3d_18"
+  pretrained: true
+  out_features: 512
+  clip_len: 16                 # Match Kinetics-400 pretraining
+  clip_stride: 8               # 50% overlap: (16-8)=8 → temporal continuity
+
+# Encoder G/H: Video Swin Transformer
+video_swin:
+  backbone: "swin3d_t"
+  pretrained: true
+  out_features: 512
+  clip_len: 16                 # FIX: 8→16 để match Kinetics-400 pretraining
+  clip_stride: 8               # 50% overlap
+
+# Encoder E/F: MediaPipe Keypoints
+mediapipe:
+  keypoint_dim: 225
+  hidden_dim: 256
+  out_features: 512
+  num_tcn_layers: 4
+  tcn_kernel: 3
+  dropout: 0.2
+
+
+# ─── SEQUENCE MODELS ─────────────────────────────────────────────────────────
+
+# Seq Model: BiLSTM (Variants A, C, E, G)
+# Params: 2 * (4 * 512 * (512 + 512) + 4 * 512) ≈ 8.4M
+bilstm:
+  hidden_size: 512
+  num_layers: 2
+  dropout: 0.3
+  projection_size: 256
+
+# Seq Model: TransformerCTC (Variants B, D, F, H)
+# FIX: d_model 256→512, num_layers 2→4 để fair comparison với BiLSTM
+# Params: ~8.4M để tương đương BiLSTM
+transformer_ctc:
+  d_model: 512                 # FIX: 256→512 (fair comparison với BiLSTM hidden*2=1024)
+  nhead: 8                     # FIX: 4→8
+  num_layers: 4                # FIX: 2→4
+  dim_feedforward: 2048
+  dropout: 0.3
+  projection_size: 256
+
+# Seq Model: Conformer (Variant mới — SOTA cho CSLR)
+# Conformer = Self-Attention + Convolution (local+global temporal modeling)
+conformer:
+  d_model: 512
+  nhead: 8
+  num_layers: 6
+  conv_kernel_size: 31         # Causal conv trong Conformer block
+  ff_expansion_factor: 4
+  attn_dropout: 0.1
+  conv_dropout: 0.1
+  ff_dropout: 0.1
+  projection_size: 256
+
+
+# ─── CSLR TRAINING ───────────────────────────────────────────────────────────
+cslr:
+  ctc_blank_idx: 0
+
+  hidden_size: 512             # FIX: Thêm vào để train_cslr.py không KeyError
+  projection_size: 256         # FIX: Thêm vào
+
+  batch_size: 1
+  grad_accumulation_steps: 8  # Effective batch = 8 samples
+
+  num_epochs: 80
+
+  learning_rate: 1.0e-4
+  lr_scheduler: "cosine"
+  warmup_epochs: 5
+  eta_min: 1.0e-6
+
+  weight_decay: 1.0e-4
+  gradient_clip: 5.0
+
+  encoder_lr_scale: 0.1       # Pretrained encoder LR = 1e-5 (10x smaller)
+
+  use_amp: true
+
+  beam_width: 10
+
+  early_stopping:
+    enabled: true
+    patience: 15               # FIX: 10→15 (TransformerCTC cần nhiều epoch hơn để converge)
+    metric: "WER"
+
+  freeze_backbone:
+    enabled: false
+    freeze_epochs: 0
+
+
+# ─── FUSION ──────────────────────────────────────────────────────────────────
+fusion:
+  mode: "attention"            # FIX: "concat"→"attention" (preserves gloss ordering)
+  gloss_embed_dim: 256
+  fused_dim: 512
+  dropout: 0.2
+  nhead: 8                     # Thêm để LateFusion attention có config rõ ràng
+
+slt:
+  batch_size: 2
+  num_epochs: 60
+
+  learning_rate: 5.0e-5
+  lr_scheduler: "cosine"
+  warmup_steps: 1000
+  eta_min: 1.0e-7
+
+  weight_decay: 1.0e-4
+  label_smoothing: 0.1
+  gradient_clip: 1.0
+  use_amp: true
+  grad_accumulation_steps: 4
+
+  d_model: 512
+  nhead: 8
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  dim_feedforward: 2048
+  dropout: 0.1
+  max_seq_len: 128
+
+  early_stopping:
+    enabled: true
+    patience: 8
+    metric: "BLEU-4"
+
+  # Modules được train trong LLM variant (K)
+  llm_trainable_modules:
+    - "cross_attention"
+    - "encoder_attn"
+    - "self_attn"
+    - "visual_adapter"
+    - "lm_head"
+    - "visual_prefix"
+    - "prefix_cross_attn"
+
+
+# ─── SLT DECODER ARCHITECTURES ───────────────────────────────────────────────
+
+# Variant I: Standard Transformer (SLT Baseline)
+transformer_2d:
+  d_model: 512
+  nhead: 8
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  dim_feedforward: 2048
+  dropout: 0.1
+  max_seq_len: 128
+
+# Variant J: Transformer with Conv3D stem
+transformer_3d:
+  d_model: 512
+  nhead: 8
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  dim_feedforward: 2048
+  dropout: 0.1
+  max_seq_len: 128
+  temporal_kernel: 3
+
+# Variant K: mBART-50 LLM
+llm:
+  model_name: "facebook/mbart-large-50"
+  src_lang: "de_DE"
+  tgt_lang: "de_DE"
+  freeze_encoder: true
+  visual_prefix_len: 32
+  adapter_hidden: 768
+  max_gen_length: 128
+  num_beams: 4
+  label_smoothing: 0.1
+
+
+# ─── HYPERPARAMETER OPTIMIZATION ─────────────────────────────────────────────
+hpo:
+  sampler: "tpe"
+  pruner: "hyperband"
+  timeout: 36000
+  search_space:
+    learning_rate: [1.0e-5, 5.0e-4]
+    hidden_size: [256, 512, 768]
+    num_layers: [2, 3, 4]
+    dropout: [0.1, 0.5]
+    batch_size: [1, 2]
+    weight_decay: [1.0e-5, 1.0e-3]
+
+
+# ─── EVALUATION ──────────────────────────────────────────────────────────────
+eval:
+  cslr_metric: "WER"
+  slt_metrics: ["BLEU-4", "ROUGE-L", "METEOR"]
+  beam_width: 4
+  # FIX: Dùng predicted gloss thay vì oracle gloss trong SLT eval
+  use_oracle_gloss_in_eval: false   # Bật lên để debug/upper-bound analysis

@@ -1,0 +1,47 @@
+Job 15903 chạy trên GPU: 3
+Device: cuda
+  GPU  : NVIDIA A100-SXM4-80GB
+  VRAM : 85.1 GB
+[Vocab] Gloss vocab size :  1090  (from PHOENIX-2014-T.train.corpus.csv)
+[Vocab] Text  vocab size :  2892  (from PHOENIX-2014-T.train.corpus.csv)
+
+================================================================
+CSLR Variant D: R3D-18 + Transformer CTC
+================================================================
+[PhoenixDataset] split=train | 7096 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/train
+[PhoenixDataset] split=dev   |  519 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/dev
+  Params total    : 46,451,970
+  Params trainable: 46,451,970
+  [Variant-D] Resume from checkpoints/ablation/Variant_D_path/checkpoint/checkpoint_45.pth
+  [Variant-D] CSLR E46/80 | Loss=1.4528 | WER=65.64%
+  [Variant-D] CSLR E47/80 | Loss=1.4249 | WER=62.03%
+  [Variant-D] CSLR E48/80 | Loss=1.4118 | WER=66.14%
+  [Variant-D] CSLR E49/80 | Loss=1.3848 | WER=64.33%
+  [Variant-D] CSLR E50/80 | Loss=1.3584 | WER=64.30%
+  [Variant-D] CSLR E51/80 | Loss=1.3321 | WER=63.05%
+  [Variant-D] CSLR E52/80 | Loss=1.3142 | WER=63.66%
+  [Variant-D] CSLR E53/80 | Loss=1.2901 | WER=63.71%
+  [Variant-D] CSLR E54/80 | Loss=1.2649 | WER=61.90%
+  [Variant-D] CSLR E55/80 | Loss=1.2390 | WER=62.91%
+  [Variant-D] CSLR E56/80 | Loss=1.2188 | WER=67.56%
+  [Variant-D] CSLR E57/80 | Loss=1.1972 | WER=68.54%
+  [Variant-D] CSLR E58/80 | Loss=1.1721 | WER=66.30%
+  [Variant-D] CSLR E59/80 | Loss=1.1556 | WER=62.01%
+  [Variant-D] CSLR E60/80 | Loss=1.1302 | WER=66.36%
+  [Variant-D] CSLR E61/80 | Loss=1.1086 | WER=62.09%
+  [Variant-D] CSLR E62/80 | Loss=1.0940 | WER=64.91%
+  [Variant-D] CSLR E63/80 | Loss=1.0724 | WER=62.59%
+  [Variant-D] CSLR E64/80 | Loss=1.0637 | WER=65.15%
+  [Variant-D] CSLR E65/80 | Loss=1.0473 | WER=62.01%
+  [Variant-D] CSLR E66/80 | Loss=1.0205 | WER=60.49%
+  [Variant-D] CSLR E67/80 | Loss=1.0055 | WER=61.07%
+  [Variant-D] CSLR E68/80 | Loss=0.9886 | WER=61.74%
+  [Variant-D] CSLR E69/80 | Loss=0.9841 | WER=62.89%
+  [Variant-D] CSLR E70/80 | Loss=0.9691 | WER=62.03%
+  [Variant-D] CSLR E71/80 | Loss=0.9547 | WER=62.27%
+  [Variant-D] CSLR E72/80 | Loss=0.9446 | WER=67.05%
+  [Variant-D] CSLR E73/80 | Loss=0.9411 | WER=62.25%
+  [Variant-D] CSLR E74/80 | Loss=0.9215 | WER=63.50%
+  [Variant-D] CSLR E75/80 | Loss=0.9244 | WER=61.21%
+  [Variant-D] CSLR E76/80 | Loss=0.9036 | WER=61.15%
+  [Variant-D] CSLR E77/80 | Loss=0.9039 | WER=65.58%

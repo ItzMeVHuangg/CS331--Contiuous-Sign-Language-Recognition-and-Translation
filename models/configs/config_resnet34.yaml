@@ -1,0 +1,279 @@
+# -------------------------------------------------------------------------------
+# CONFIG: ResNet34-2D + BiLSTM -> LateFusion + Transformer-2D SLT
+# Target : CSLR WER ~25% in 60 epochs | SLT BLEU-4 ~15-20 in 30 epochs
+# Strategy: Match MBinh's proven step-LR schedule that achieved 24.84% WER.
+#   - step LR with decay at [50, 60] gives a big WER drop at epoch 51
+#   - higher base LR (5e-4) + encoder_lr_scale 0.1
+#   - no freeze backbone, no early stopping (must reach epoch 50+)
+#   - grad_accumulation 1 (matches MBinh exactly)
+# -------------------------------------------------------------------------------
+
+# --- PATHS -------------------------------------------------------------------
+paths:
+  phoenix_root:         "/datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T"
+  frames_root:          "/datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px"
+  annot_root:           "/datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/annotations/manual"
+  mediapipe_kpts_root:  "/datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/keypoints"
+  checkpoint_dir:       "checkpoints_final_resnet34"
+  log_dir:              "logs_final_resnet34"
+
+# --- DATA --------------------------------------------------------------------
+data:
+  img_height: 224
+  img_width:  224
+  num_workers: 4
+  pin_memory: false
+  prefetch_factor: 2
+  max_frames: 256
+  temporal_stride: 1
+  augmentation:
+    random_crop: true
+    horizontal_flip: 0.5
+    temporal_scale:
+      min_scale: 0.8
+      max_scale: 1.2
+
+# --- CNN ENCODER (ResNet34) ---------------------------------------------------
+cnn:
+  backbone: "resnet34"
+  pretrained: true
+  freeze_bn: false
+  out_features: 512
+
+cnn_3d:
+  backbone: "r3d_18"
+  pretrained: true
+  out_features: 512
+  clip_len: 16
+  clip_stride: 8
+
+video_swin:
+  backbone: "swin3d_t"
+  pretrained: true
+  out_features: 512
+  clip_len: 16
+  clip_stride: 8
+  max_clips_per_fwd: 4
+
+mediapipe:
+  keypoint_dim: 225
+  hidden_dim: 256
+  out_features: 512
+  num_tcn_layers: 4
+  tcn_kernel: 3
+  dropout: 0.2
+
+# --- BILSTM ------------------------------------------------------------------
+bilstm:
+  hidden_size: 512
+  num_layers: 2
+  dropout: 0.3
+  projection_size: 256
+
+transformer_ctc:
+  d_model: 512
+  nhead: 8
+  num_layers: 4
+  dim_feedforward: 2048
+  dropout: 0.3
+  projection_size: 256
+
+conformer:
+  d_model: 512
+  nhead: 8
+  num_layers: 6
+  conv_kernel_size: 31
+  ff_expansion_factor: 4
+  attn_dropout: 0.1
+  conv_dropout: 0.1
+  ff_dropout: 0.1
+  projection_size: 256
+
+# --- CSLR TRAINING (ResNet34 + BiLSTM, 60 epochs) ----------------------------
+# KEY: Step LR with decay at [50, 60] is what gives the 25% WER jump.
+# MBinh showed: ~30% WER at epoch 50, then drops to ~25% at epoch 51 when LR * 0.2.
+cslr:
+  ctc_blank_idx: 0
+  hidden_size: 512
+  projection_size: 256
+
+  batch_size: 4
+  grad_accumulation_steps: 1
+
+  num_epochs: 60
+
+  learning_rate: 5.0e-4
+  lr_scheduler: "step"
+  lr_decay_rate: 0.2
+  lr_decay_epochs: [50, 60]
+  warmup_epochs: 0
+  eta_min: 1.0e-6
+
+  weight_decay: 5.0e-4
+  gradient_clip: 5.0
+
+  encoder_lr_scale: 0.1
+
+  use_amp: true
+  beam_width: 10
+
+  freeze_backbone:
+    enabled: false
+    freeze_epochs: 0
+
+  early_stopping:
+    enabled: false
+    patience: 15
+    metric: "WER"
+
+# --- FUSION ------------------------------------------------------------------
+fusion:
+  mode: "attention"
+  gloss_embed_dim: 256
+  fused_dim: 512
+  dropout: 0.2
+  nhead: 8
+
+# --- SLT TRAINING (LateFusion + Transformer-2D, 30 epochs) -------------------
+slt:
+  batch_size: 4
+  num_epochs: 30
+
+  learning_rate: 8.0e-5
+  lr_scheduler: "cosine"
+  warmup_steps: 500
+  eta_min: 1.0e-8
+
+  weight_decay: 1.0e-4
+  label_smoothing: 0.1
+  gradient_clip: 1.0
+  use_amp: true
+  grad_accumulation_steps: 2
+
+  d_model: 512
+  nhead: 8
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  dim_feedforward: 2048
+  dropout: 0.1
+  max_seq_len: 128
+
+  early_stopping:
+    enabled: true
+    patience: 8
+    metric: "BLEU-4"
+
+  llm_trainable_modules:
+    - "cross_attention"
+    - "encoder_attn"
+    - "self_attn"
+    - "visual_adapter"
+    - "lm_head"
+
+# --- SLT DECODER ARCHITECTURES -----------------------------------------------
+transformer_2d:
+  d_model: 512
+  nhead: 8
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  dim_feedforward: 2048
+  dropout: 0.1
+  max_seq_len: 128
+
+transformer_3d:
+  d_model: 512
+  nhead: 8
+  num_encoder_layers: 4
+  num_decoder_layers: 4
+  dim_feedforward: 2048
+  dropout: 0.1
+  max_seq_len: 128
+  temporal_kernel: 3
+
+llm:
+  model_name: "facebook/mbart-large-50"
+  src_lang: "de_DE"
+  tgt_lang: "de_DE"
+  freeze_encoder: true
+  visual_prefix_len: 32
+  adapter_hidden: 768
+  max_gen_length: 128
+  num_beams: 4
+  label_smoothing: 0.1
+
+# --- 3-STREAM (not used) -----------------------------------------------------
+stream1:
+  pretrained: true
+  d_model: 512
+  tape_kernel: 3
+  tape_dilation_short: 1
+  tape_dilation_long: 3
+  tape_max_len: 512
+  tape_dropout: 0.1
+  ctc_dropout: 0.1
+  use_checkpoint: true
+
+stream2:
+  keypoint_dim: 225
+  num_joints: 75
+  node_dim: 128
+  d_model: 512
+  num_proto: 16
+  knn_k: 5
+  ms_kernels: [1, 3, 5, 7]
+  dropout: 0.1
+  ctc_dropout: 0.1
+
+stream3:
+  keypoint_dim: 225
+  d_model: 512
+  nhead: 8
+  bilstm_hidden: 512
+  bilstm_layers: 2
+  attn_dropout: 0.1
+  bilstm_dropout: 0.3
+  ctc_dropout: 0.1
+  pretrained: true
+  use_checkpoint: true
+
+three_stream:
+  share_swin: true
+  batch_size: 1
+  grad_accumulation_steps: 8
+  num_epochs: 60
+  learning_rate: 5.0e-4
+  warmup_epochs: 5
+  eta_min: 1.0e-6
+  weight_decay: 5.0e-4
+  gradient_clip: 1.0
+  use_amp: true
+  swin_lr_scale: 0.05
+  stream2_lr_scale: 1.0
+  loss_weights: [1.0, 1.0, 1.0]
+  early_stopping:
+    enabled: true
+    patience: 15
+    metric: "WER"
+
+ensemble:
+  beam_width: 10
+  lm_weight: 0.3
+  use_lm: true
+
+hpo:
+  sampler: "tpe"
+  pruner: "hyperband"
+  timeout: 36000
+  search_space:
+    learning_rate: [1.0e-5, 5.0e-4]
+    hidden_size: [256, 512, 768]
+    num_layers: [2, 3, 4]
+    dropout: [0.1, 0.5]
+    batch_size: [1, 2]
+    weight_decay: [1.0e-5, 1.0e-3]
+
+eval:
+  cslr_metric: "WER"
+  slt_metrics: ["BLEU-4", "ROUGE-L", "METEOR"]
+  beam_width: 4
+  use_oracle_gloss_in_eval: false

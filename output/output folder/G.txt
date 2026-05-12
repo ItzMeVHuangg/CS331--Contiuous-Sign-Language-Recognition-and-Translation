@@ -1,0 +1,43 @@
+Job 16068 chạy trên GPU: 5
+Device: cuda
+  GPU  : NVIDIA A100-SXM4-80GB
+  VRAM : 85.1 GB
+[Vocab] Gloss vocab size :  1090  (from PHOENIX-2014-T.train.corpus.csv)
+[Vocab] Text  vocab size :  2892  (from PHOENIX-2014-T.train.corpus.csv)
+
+================================================================
+CSLR Variant G: Video Swin Transformer + BiLSTM
+================================================================
+[PhoenixDataset] split=train | 7096 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/train
+[PhoenixDataset] split=dev   |  519 samples | frames: /datastore/cndt_phungdtm/KLTN_HoangBinh/Dataset/PHOENIX-2014-T/features/fullFrame-210x260px/dev
+  Params total    : 39,291,944
+  Params trainable: 39,291,944
+  [Variant-G] Resume from checkpoints/ablation/Variant_G_path/checkpoint/checkpoint_60.pth
+  [Variant-G] CSLR E61/80 | Loss=0.1289 | WER=37.65%
+  [Variant-G] CSLR E62/80 | Loss=0.1237 | WER=37.51%
+  [Variant-G] CSLR E63/80 | Loss=0.1230 | WER=37.65%
+  [Variant-G] CSLR E64/80 | Loss=0.1176 | WER=37.86%
+  [Variant-G] CSLR E65/80 | Loss=0.1127 | WER=37.46%
+  [Variant-G] CSLR E66/80 | Loss=0.1069 | WER=37.51%
+  [Variant-G] CSLR E67/80 | Loss=0.1062 | WER=37.70%
+  [Variant-G] CSLR E68/80 | Loss=0.0983 | WER=37.70%
+  [Variant-G] CSLR E69/80 | Loss=0.0962 | WER=37.62%
+  [Variant-G] CSLR E70/80 | Loss=0.0952 | WER=37.51%
+  [Variant-G] CSLR E71/80 | Loss=0.0911 | WER=37.67%
+  [Variant-G] CSLR E72/80 | Loss=0.0893 | WER=37.54%
+  [Variant-G] CSLR E73/80 | Loss=0.0870 | WER=37.57%
+  [Variant-G] CSLR E74/80 | Loss=0.0811 | WER=37.70%
+  [Variant-G] CSLR E75/80 | Loss=0.0799 | WER=37.62%
+  [Variant-G] Early stopping at epoch 75
+
+[Variant G] Best WER = 37.35%
+
+========================================================================
+CSLR ABLATION RESULTS
+========================================================================
+Var   Encoder            Seq Model               WER (%)
+------------------------------------------------------------------------
+  G   Video Swin-T       BiLSTM                    37.35
+========================================================================
+
+Full results → checkpoints/ablation/ablation_results.json
