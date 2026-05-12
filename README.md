@@ -61,7 +61,7 @@ This complex linguistic structure and massive statistical scale make PHOENIX-201
 
 | Member | ID |
 | :--- | :--- |
-| Truong Hoang Thanh An | 23520032 |
-| Nguyen Xuan An | 23520023 |
 | Vu Viet Hoang | 23520548 |
 | Mai Thai Binh | 23520158 |
+| Truong Hoang Thanh An | 23520032 |
+| Nguyen Xuan An | 23520023 |
