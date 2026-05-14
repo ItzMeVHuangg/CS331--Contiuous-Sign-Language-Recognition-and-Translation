@@ -69,7 +69,7 @@ The following table summarizes the Word Error Rate (WER) performance of our inde
 
 ## 6. Conclusion & Future Work
 
-We have successfully developed a deep learning framework for Continuous Sign Language Recognition (CSLR) and Translation (SLT). Our proposed **Dual-Stream Architecture**, which synergistically combines ResNet34 and Video Swin Transformer via a Cross-Attention Late Fusion mechanism, achieved the best overall performance with a **WER of 24.84%** and a **BLEU-4 score of 15.07%**.
+We have successfully developed a deep learning framework for Continuous Sign Language Recognition (CSLR) and Translation (SLT). Our proposed **Dual-Stream Architecture**, which synergistically combines ResNet34 and Video Swin Transformer via a Cross-Attention Late Fusion mechanism, achieved the best overall performance with a **WER of 27.32%** and a **BLEU-4 score of 13.68%**.
 
 **Key Strengths:**
 The primary advantage of our system lies in its ability to simultaneously exploit static spatial features (via the 2D CNN) and 3D spatio-temporal dynamics (via Video Swin). Furthermore, integrating these visual streams with CTC loss enables robust, end-to-end training without the need for manual frame-level alignment.
