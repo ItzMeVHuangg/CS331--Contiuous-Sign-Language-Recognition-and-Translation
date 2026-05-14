@@ -10,8 +10,6 @@
 
 This repository presents an end-to-end framework for Continuous Sign Language Recognition (CSLR) and Sign Language Translation (SLT), rigorously evaluated on the **PHOENIX 2014T** dataset.
 
-![Main System Architecture](./main_system.jpg)
-
 ## 1. System Pipeline Workflow
 The framework is designed based on a **Sign-to-Gloss-to-Text** architecture, conceptually divided into two primary stages. The multimodal data flows through the following computational modules:
 
@@ -39,7 +37,6 @@ The framework is designed based on a **Sign-to-Gloss-to-Text** architecture, con
 ### STAGE 2: Sign Language Translation (SLT)
 - **SLT Backbone (Translation Module):** Leverages an autoregressive **Seq2Seq Transformer** (standard Encoder-Decoder architecture) to map the fused multimodal representations into natural language sequences.
 - **Output:** Fluent and grammatically complete translated sentences in the target language (German).
-
 ---
 
 ## 2. Dataset Overview 
@@ -72,9 +69,11 @@ The following table summarizes the Word Error Rate (WER) performance of 9 differ
 
 > *Note: Variant **B***, **A*** represents a tuned version of Variant A, B (originally 42.66%, 69.66%) with an optimized Learning Rate schedule.*
 
+## 4 Dual System pipeline
+![Main System Architecture](./main_system.jpg)
 ---
 
-## 4 Conclusion & Key Findings
+## 5 Conclusion & Key Findings
 
 Based on the ablation study results, we can draw several critical observations regarding the Continuous Sign Language Recognition (CSLR) pipeline:
 
