@@ -1,33 +1,3 @@
-"""
-scripts/extract_mediapipe.py
-─────────────────────────────
-Pre-extract MediaPipe holistic landmarks from PHOENIX-2014-T frames.
-Must be run ONCE before training Mediapipe variants (E / F).
-
-Output
-──────
-For each video, saves one  .npy  file:
-    <mediapipe_kpts_root>/<split>/<video_id>.npy
-    shape : (T, 225)   float32
-    layout: right_hand (63) | left_hand (63) | pose (99)
-            = 21×3 + 21×3 + 33×3
-
-All coordinates are normalised to [0, 1] in frame-pixel space.
-Missing landmarks (hand not visible) are filled with zeros.
-
-Usage
-─────
-    python scripts/extract_mediapipe.py \\
-        --frames_root /path/to/fullFrame-210x260px \\
-        --out_root    /path/to/keypoints \\
-        --splits train dev test \\
-        --num_workers 8
-
-Requirements
-────────────
-    pip install mediapipe opencv-python tqdm
-"""
-
 import argparse
 import csv
 import os

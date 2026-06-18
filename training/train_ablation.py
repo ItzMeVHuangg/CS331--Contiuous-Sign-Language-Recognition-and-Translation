@@ -1,6 +1,6 @@
 """
 Ablation Variants:
-    CSLR (encoder × seq_model):
+    CSLR:
         A  ResNet18-2D   + BiLSTM           [baseline]
         B  ResNet18-2D   + Transformer CTC
         C  R3D-18        + BiLSTM
@@ -9,11 +9,10 @@ Ablation Variants:
         F  MediaPipe     + Transformer CTC
         G  Video Swin    + BiLSTM
         H  Video Swin    + Transformer CTC
+        I  ResNet18-2D   + Conformer CTC
 
-    SLT (dùng best CSLR encoder):
-        I  best_encoder → Transformer-2D   [SLT baseline]
-        J  best_encoder → Transformer-3D   (Conv3D stem)
-        K  best_encoder → mBART-50 LLM
+    SLT:
+        Y  best_encoder → Transformer-2D   [SLT baseline]
 """
 
 import sys
@@ -29,8 +28,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 from torch.utils.data import DataLoader, Dataset
-from torch.optim import AdamW
-from torch.optim.lr_scheduler import LambdaLR
+from torch.optim import Adam, AdamW
+from torch.optim.lr_scheduler import LambdaLR, MultiStepLR
 from tqdm import tqdm
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -41,9 +40,10 @@ from utils.ctc_decoder  import batch_ctc_decode
 from utils.metrics      import compute_wer, compute_bleu, compute_rouge, compute_meteor
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# [F3] Reproducibility — Set global seed
-# ══════════════════════════════════════════════════════════════════════════════
+
+import torch.multiprocessing
+
+torch.multiprocessing.set_sharing_strategy('file_system')
 
 def set_seed(seed: int = 42):
     """Set seed cho toàn bộ stack: Python, NumPy, PyTorch, CUDA."""
@@ -51,7 +51,7 @@ def set_seed(seed: int = 42):
     np.random.seed(seed)
     torch.manual_seed(seed)
     torch.cuda.manual_seed_all(seed)
-    # Deterministic CUDNN (trade-off: chậm hơn ~10%, nhưng cần cho paper)
+
     torch.backends.cudnn.deterministic = True
     torch.backends.cudnn.benchmark = False
 
@@ -62,16 +62,7 @@ def _worker_init_fn(worker_id: int):
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Dataset helpers
-# ══════════════════════════════════════════════════════════════════════════════
-
 class MediapipeDataset(Dataset):
-    """
-    Wraps PhoenixDataset và thay thế frame tensors bằng pre-extracted
-    MediaPipe keypoints từ <kpts_root>/<split>/<video_id>.npy
-    """
 
     def __init__(self, phoenix_ds: PhoenixDataset, kpts_root: str, keypoint_dim: int = 225):
         self.ds           = phoenix_ds
@@ -106,10 +97,6 @@ class MediapipeDataset(Dataset):
         return item
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Model builders
-# ══════════════════════════════════════════════════════════════════════════════
-
 def _build_encoder(cfg: dict, encoder_type: str) -> nn.Module:
     if encoder_type == "cnn_2d":
         from models.cnn_encoder import CNNEncoder
@@ -135,11 +122,12 @@ def _build_encoder(cfg: dict, encoder_type: str) -> nn.Module:
         from models.video_swin_encoder import VideoSwinEncoder
         c = cfg.get("video_swin", {})
         return VideoSwinEncoder(
-            backbone     = c.get("backbone", "swin3d_t"),
-            pretrained   = c.get("pretrained", True),
-            out_features = c.get("out_features", 512),
-            clip_len     = c.get("clip_len", 16),   # [F5] FIX: default=16
-            clip_stride  = c.get("clip_stride", 8),
+            backbone          = c.get("backbone", "swin3d_t"),
+            pretrained        = c.get("pretrained", True),
+            out_features      = c.get("out_features", 512),
+            clip_len          = c.get("clip_len", 16),
+            clip_stride       = c.get("clip_stride", 8),
+            max_clips_per_fwd = c.get("max_clips_per_fwd", 8),
         )
 
     elif encoder_type == "mediapipe":
@@ -175,7 +163,7 @@ def _build_seq_model(cfg: dict, seq_type: str,
     elif seq_type == "transformer":
         from models.transformer_ctc import TransformerCTC
         c = cfg["transformer_ctc"]
-        # [F4] FIX: Dùng config đã được sửa (d_model=512, nhead=8, num_layers=4)
+
         return TransformerCTC(
             input_size      = input_size,
             d_model         = c.get("d_model", 512),
@@ -186,6 +174,24 @@ def _build_seq_model(cfg: dict, seq_type: str,
             dropout         = c.get("dropout", 0.3),
             projection_size = c.get("projection_size", 256),
             blank_idx       = cfg["cslr"]["ctc_blank_idx"],
+        )
+
+    elif seq_type == "conformer":
+        from models.conformer_ctc import ConformerCTC
+        c = cfg.get("conformer", {})
+        return ConformerCTC(
+            input_size          = input_size,
+            d_model             = c.get("d_model", 512),
+            nhead               = c.get("nhead", 8),
+            num_layers          = c.get("num_layers", 6),
+            num_classes         = num_classes,
+            conv_kernel_size    = c.get("conv_kernel_size", 31),
+            ff_expansion_factor = c.get("ff_expansion_factor", 4),
+            attn_dropout        = c.get("attn_dropout", 0.1),
+            conv_dropout        = c.get("conv_dropout", 0.1),
+            ff_dropout          = c.get("ff_dropout", 0.1),
+            projection_size     = c.get("projection_size", 256),
+            blank_idx           = cfg["cslr"]["ctc_blank_idx"],
         )
 
     else:
@@ -208,10 +214,15 @@ def _is_temporal_encoder(encoder_type: str) -> bool:
 
 
 def build_cslr_model(cfg, num_classes, encoder_type, seq_model_type):
+    from models.temporal_pool import TemporalPool
+
     encoder   = _build_encoder(cfg, encoder_type)
     feat_dim  = _get_encoder_out_features(cfg, encoder_type)
     seq_model = _build_seq_model(cfg, seq_model_type, feat_dim, num_classes)
     is_temp   = _is_temporal_encoder(encoder_type)
+
+    use_temp_pool = (encoder_type == "cnn_2d")
+    temp_pool     = TemporalPool(num_pool_layers=2) if use_temp_pool else None
 
     class CSLRModel(nn.Module):
         def __init__(self):
@@ -219,15 +230,32 @@ def build_cslr_model(cfg, num_classes, encoder_type, seq_model_type):
             self.encoder     = encoder
             self.seq_model   = seq_model
             self.is_temporal = is_temp
+            if temp_pool is not None:
+                self.temp_pool = temp_pool
 
         def forward(self, frames, frame_lens):
-            # frames: (B, T, C, H, W) hoặc (B, T, KD) cho MediaPipe
-            feats = self.encoder(frames)            # (B, T', feat_dim)
+            if encoder_type == "cnn_2d":
+                feats = self.encoder(frames, frame_lens)
+            else:
+                feats = self.encoder(frames)
+
+            T_in  = frames.shape[1]
             T_out = feats.shape[1]
-            lens  = frame_lens.clamp(max=T_out)
-            if self.is_temporal and T_out < frame_lens.max().item():
+
+            if hasattr(self, "temp_pool"):
+                # 2D CNN: temporal pooling
+                feats = self.temp_pool(feats)               # (B, T//4, feat_dim)
+                lens  = self.temp_pool.adjust_lengths(frame_lens, T_in)
+            elif encoder_type == "video_swin":
+                # VideoSwin
+                lens = self.encoder.scale_lengths(frame_lens, T_in)
+            elif self.is_temporal and T_out < frame_lens.max().item():
+                # 3D CNN
                 scale = T_out / frame_lens.float().max().item()
                 lens  = (frame_lens.float() * scale).long().clamp(min=1, max=T_out)
+            else:
+                lens = frame_lens.clamp(max=T_out)
+
             log_probs, hidden = self.seq_model(feats, lens)
             return log_probs, hidden, lens
 
@@ -271,35 +299,6 @@ def build_slt_model(cfg, gloss_vocab_size, text_vocab_size, cslr_model, slt_type
             dropout            = c["dropout"],
             max_seq_len        = c["max_seq_len"],
         )
-    elif slt_type == "transformer_3d":
-        from models.translator_3d import SLTTransformer3D
-        c = cfg["transformer_3d"]
-        translator = SLTTransformer3D(
-            src_dim            = fused_dim,
-            tgt_vocab_size     = text_vocab_size,
-            d_model            = c["d_model"],
-            nhead              = c["nhead"],
-            num_encoder_layers = c["num_encoder_layers"],
-            num_decoder_layers = c["num_decoder_layers"],
-            dim_feedforward    = c["dim_feedforward"],
-            dropout            = c["dropout"],
-            max_seq_len        = c["max_seq_len"],
-            encoder_type       = "conv3d",
-            temporal_kernel    = c.get("temporal_kernel", 3),
-        )
-    elif slt_type == "llm":
-        from models.translator_llm import SLTTransformerLLM
-        c = cfg["llm"]
-        translator = SLTTransformerLLM(
-            src_dim            = fused_dim,
-            model_name         = c.get("model_name", "facebook/mbart-large-50"),
-            freeze_encoder     = c.get("freeze_encoder", True),
-            visual_prefix_len  = c.get("visual_prefix_len", 32),
-            adapter_hidden     = c.get("adapter_hidden", 768),
-            max_gen_length     = c.get("max_gen_length", 128),
-            num_beams          = c.get("num_beams", 4),
-            label_smoothing    = c.get("label_smoothing", 0.1),
-        )
     else:
         raise ValueError(f"Unknown slt_type: '{slt_type}'")
 
@@ -332,10 +331,8 @@ def build_slt_model(cfg, gloss_vocab_size, text_vocab_size, cslr_model, slt_type
             _, visual_hidden, adj_lens = self.cslr(frames, frame_lens)
 
             if use_oracle_gloss:
-                # Upper-bound analysis: biết trước ground truth gloss
                 effective_gloss = gloss
             else:
-                # [F1] Thực tế inference: decode gloss từ CTC output
                 log_probs, _, adj_lens_cslr = self.cslr(frames, frame_lens)
                 T_out = log_probs.size(0)
                 pred_gloss_ids = batch_ctc_decode(
@@ -344,7 +341,6 @@ def build_slt_model(cfg, gloss_vocab_size, text_vocab_size, cslr_model, slt_type
                     blank_idx=blank_idx,
                     mode="greedy",
                 )
-                # Pad predicted glosses để tạo batch tensor
                 max_g = max(len(g) for g in pred_gloss_ids) if pred_gloss_ids else 1
                 max_g = max(max_g, 1)
                 device = frames.device
@@ -366,10 +362,6 @@ def build_slt_model(cfg, gloss_vocab_size, text_vocab_size, cslr_model, slt_type
     return CSLTModel()
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Learning rate schedule
-# ══════════════════════════════════════════════════════════════════════════════
-
 def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_steps, eta_min=0.0):
     def lr_lambda(current_step):
         if current_step < num_warmup_steps:
@@ -381,25 +373,49 @@ def get_cosine_schedule_with_warmup(optimizer, num_warmup_steps, num_training_st
     return LambdaLR(optimizer, lr_lambda)
 
 
+def get_step_decay_scheduler(optimizer, decay_epochs, decay_rate=0.2):
+    """Paper-style: multiply LR by decay_rate at each milestone epoch."""
+    return MultiStepLR(optimizer, milestones=decay_epochs, gamma=decay_rate)
+
+
 def _build_cslr_optimizer(model, cfg):
     c       = cfg["cslr"]
     base_lr = c["learning_rate"]
-    scale   = c.get("encoder_lr_scale", 0.1)
+    scale   = c.get("encoder_lr_scale", 0.1)   # pretrained backbone LR = base_lr * 0.1
+    sched   = c.get("lr_scheduler", "cosine")
 
-    encoder_params  = list(model.encoder.parameters())
+    encoder_mod = model.encoder
+    if hasattr(encoder_mod, "backbone"):
+        # VideoSwin hoặc tương tự: backbone pretrained + projection học mới
+        backbone_params  = list(encoder_mod.backbone.parameters())
+        proj_norm_params = (
+            list(encoder_mod.proj.parameters()) +
+            list(encoder_mod.out_norm.parameters())
+            if hasattr(encoder_mod, "out_norm") else
+            list(encoder_mod.proj.parameters())
+        )
+        encoder_param_groups = [
+            {"params": backbone_params,  "lr": base_lr * scale,        "name": "enc_backbone"},
+            {"params": proj_norm_params, "lr": base_lr * scale * 5.0,  "name": "enc_proj"},
+        ]
+    else:
+        # CNN: toàn bộ encoder dùng cùng LR scale
+        encoder_param_groups = [
+            {"params": list(encoder_mod.parameters()), "lr": base_lr * scale, "name": "encoder"},
+        ]
+
     seqmodel_params = list(model.seq_model.parameters())
-    encoder_ids     = {id(p) for p in encoder_params}
-
-    param_groups = [
-        {"params": encoder_params,  "lr": base_lr * scale, "name": "encoder"},
-        {"params": seqmodel_params, "lr": base_lr,          "name": "seq_model"},
+    param_groups = encoder_param_groups + [
+        {"params": seqmodel_params, "lr": base_lr, "name": "seq_model"},
     ]
-    return AdamW(param_groups, weight_decay=c["weight_decay"])
 
+    # Paper dùng Adam cho baseline ResNet34+BiLSTM, AdamW cho các variant khác
+    if sched == "step":
+        optimizer = Adam(param_groups, weight_decay=c.get("weight_decay", 5e-4))
+    else:
+        optimizer = AdamW(param_groups, weight_decay=c.get("weight_decay", 1e-4))
+    return optimizer
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Training loops
-# ══════════════════════════════════════════════════════════════════════════════
 
 def _prepare_variant_dirs(base_dir, variant_key):
     variant_dir = base_dir / f"Variant_{variant_key}_path"
@@ -434,15 +450,25 @@ def run_cslr_epochs(model, train_loader, dev_loader, cfg, device,
     scaler    = torch.amp.GradScaler("cuda") if (device.type == "cuda" and
                                                    c.get("use_amp", True)) else None
 
-    n_steps      = num_epochs * len(train_loader)
-    warmup_steps = c.get("warmup_epochs", 5) * len(train_loader)
-    scheduler    = get_cosine_schedule_with_warmup(
-        optimizer, warmup_steps, n_steps, eta_min=c.get("eta_min", 1e-6))
-    grad_acc = c.get("grad_accumulation_steps", 1)
+    sched_type   = c.get("lr_scheduler", "cosine")
+    num_epochs_s = num_epochs
 
+    if sched_type == "step":
+        decay_epochs = c.get("lr_decay_epochs", [40, 50])
+        decay_rate   = c.get("lr_decay_rate", 0.2)
+        scheduler    = get_step_decay_scheduler(optimizer, decay_epochs, decay_rate)
+        step_per_batch = False          # step scheduler is per-epoch
+    else:
+        n_steps      = num_epochs * len(train_loader)
+        warmup_steps = c.get("warmup_epochs", 5) * len(train_loader)
+        scheduler    = get_cosine_schedule_with_warmup(
+            optimizer, warmup_steps, n_steps, eta_min=c.get("eta_min", 1e-6))
+        step_per_batch = True           # cosine scheduler is per-step
+
+    grad_acc    = c.get("grad_accumulation_steps", 1)
     start_epoch = 0
-    best_wer = float("inf")
-    best_count = 0
+    best_wer    = float("inf")
+    best_count  = 0
 
     last_ckpt, last_epoch = _find_latest_checkpoint(ckpt_dir)
     if last_ckpt is not None:
@@ -472,9 +498,16 @@ def run_cslr_epochs(model, train_loader, dev_loader, cfg, device,
             for p in model.encoder.parameters():
                 p.requires_grad = True
             optimizer = _build_cslr_optimizer(model, cfg)
-            remaining = (num_epochs - epoch) * len(train_loader)
-            scheduler = get_cosine_schedule_with_warmup(
-                optimizer, 0, remaining, eta_min=c.get("eta_min", 1e-6))
+            if sched_type == "step":
+                decay_ep   = c.get("lr_decay_epochs", [40, 50])
+                decay_rate = c.get("lr_decay_rate", 0.2)
+                scheduler  = get_step_decay_scheduler(optimizer, decay_ep, decay_rate)
+                for _ in range(epoch):
+                    scheduler.step()
+            else:
+                remaining  = (num_epochs - epoch) * len(train_loader)
+                scheduler  = get_cosine_schedule_with_warmup(
+                    optimizer, 0, remaining, eta_min=c.get("eta_min", 1e-6))
             print(f"  [{variant_name}] Encoder UNFROZEN at epoch {epoch+1}")
 
         model.train()
@@ -512,10 +545,14 @@ def run_cslr_epochs(model, train_loader, dev_loader, cfg, device,
                     optimizer.step()
                     optimizer.zero_grad()
 
-            scheduler.step()
+            if step_per_batch:
+                scheduler.step()
 
         avg_loss = epoch_loss / max(num_batches, 1)
 
+        # Step-decay scheduler advances per epoch
+        if not step_per_batch:
+            scheduler.step()
 
         # Evaluation
         model.eval()
@@ -698,13 +735,9 @@ def run_slt_epochs(model, train_loader, dev_loader, cfg, device,
     return best_bleu
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Ablation variant registry
-# ══════════════════════════════════════════════════════════════════════════════
-
 CSLR_VARIANTS = {
     "A": {"encoder": "cnn_2d",    "seq_model": "bilstm",
-          "desc": "ResNet18-2D + BiLSTM [baseline]"},
+          "desc": "ResNet34-2D + BiLSTM"},
     "B": {"encoder": "cnn_2d",    "seq_model": "transformer",
           "desc": "ResNet18-2D + Transformer CTC"},
     "C": {"encoder": "cnn_3d",    "seq_model": "bilstm",
@@ -719,37 +752,46 @@ CSLR_VARIANTS = {
           "desc": "Video Swin Transformer + BiLSTM"},
     "H": {"encoder": "video_swin", "seq_model": "transformer",
           "desc": "Video Swin Transformer + Transformer CTC"},
+    "I": {"encoder": "cnn_2d", "seq_model": "conformer",
+            "desc": "ResNet18-2D + Conformer CTC"},
 }
 
 SLT_VARIANTS = {
-    "I": {"slt_type": "transformer_2d",
+    "Y": {"slt_type": "transformer_2d",
           "desc": "best_CSLR → Transformer-2D [SLT baseline]"},
-    "J": {"slt_type": "transformer_3d",
-          "desc": "best_CSLR → Transformer-3D (Conv3D stem)"},
-    "K": {"slt_type": "llm",
-          "desc": "best_CSLR → mBART-50 LLM decoder"},
 }
 
 ALL_VARIANTS = {**CSLR_VARIANTS, **SLT_VARIANTS}
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# DataLoader factory
-# ══════════════════════════════════════════════════════════════════════════════
 
 def make_loader(split, return_translation, cfg, gloss_vocab, text_vocab,
                 encoder_type="cnn_2d", seed=42):
     dc    = cfg["data"]
     cslrc = cfg["cslr"]
 
+    # Paper: temporal scale augmentation ±20% for train, read from config
+    ts_cfg = dc.get("augmentation", {}).get("temporal_scale", {})
+    temporal_scale_range = None
+    if split == "train" and ts_cfg and encoder_type != "mediapipe":
+        temporal_scale_range = (
+            ts_cfg.get("min_scale", 0.8),
+            ts_cfg.get("max_scale", 1.2),
+        )
+
+    clip_aug_crop = None
+    if split == "train" and encoder_type != "mediapipe":
+        clip_aug_crop = (dc["img_height"], dc["img_width"])
+
     base_ds = PhoenixDataset(
-        split              = split,
-        gloss_vocab        = gloss_vocab,
-        text_vocab         = text_vocab,
-        max_frames         = dc["max_frames"],
-        temporal_stride    = dc["temporal_stride"],
-        transform          = build_transforms(split, dc["img_height"], dc["img_width"]),
-        return_translation = return_translation,
+        split                = split,
+        gloss_vocab          = gloss_vocab,
+        text_vocab           = text_vocab,
+        max_frames           = dc["max_frames"],
+        temporal_stride      = dc["temporal_stride"],
+        transform            = build_transforms(split, dc["img_height"], dc["img_width"]),
+        return_translation   = return_translation,
+        temporal_scale_range = temporal_scale_range,
+        clip_aug_crop        = clip_aug_crop,
     )
 
     if encoder_type == "mediapipe":
@@ -768,25 +810,25 @@ def make_loader(split, return_translation, cfg, gloss_vocab, text_vocab,
     g = torch.Generator()
     g.manual_seed(seed)
 
+    nw = dc["num_workers"]
     return DataLoader(
         ds,
-        batch_size      = batch_size,
-        shuffle         = (split == "train"),
-        num_workers     = dc["num_workers"],
-        pin_memory      = dc.get("pin_memory", True),
-        prefetch_factor = dc.get("prefetch_factor", 2) if dc["num_workers"] > 0 else None,
-        collate_fn      = cf,
-        drop_last       = (split == "train"),
-        generator       = g if split == "train" else None,
-        worker_init_fn  = _worker_init_fn,    # [F3] Seed cho mỗi worker
+        batch_size              = batch_size,
+        shuffle                 = (split == "train"),
+        num_workers             = nw,
+        pin_memory              = False,
+        prefetch_factor         = dc.get("prefetch_factor", 2) if nw > 0 else None,
+        collate_fn              = cf,
+        drop_last               = (split == "train"),
+        generator               = g if split == "train" else None,
+        worker_init_fn          = _worker_init_fn,
+        persistent_workers      = (nw > 0),         
+        multiprocessing_context = None,  
     )
 
 
-# ══════════════════════════════════════════════════════════════════════════════
-# Main ablation runner
-# ══════════════════════════════════════════════════════════════════════════════
-
-def run_ablation(cfg, variants_to_run, best_encoder=None, best_seq=None, cslr_ckpt=None):
+def run_ablation(cfg, variants_to_run, best_encoder=None, best_seq=None,
+                 cslr_ckpt=None, init_cslr_ckpt=None):
     seed = cfg.get("seed", 42)
     set_seed(seed)
 
@@ -825,6 +867,21 @@ def run_ablation(cfg, variants_to_run, best_encoder=None, best_seq=None, cslr_ck
             encoder_type   = v["encoder"],
             seq_model_type = v["seq_model"],
         ).to(device)
+
+        if init_cslr_ckpt:
+            init_obj = torch.load(init_cslr_ckpt, map_location="cpu", weights_only=False)
+            init_state = init_obj.get("model", init_obj) if isinstance(init_obj, dict) else init_obj
+            ckpt_variant = str(init_obj.get("variant", "")).upper() if isinstance(init_obj, dict) else ""
+
+            if ckpt_variant and ckpt_variant != key:
+                print(f"  [Variant-{key}] Skip init checkpoint (ckpt variant={ckpt_variant}).")
+            else:
+                missing, unexpected = cslr_model.load_state_dict(init_state, strict=False)
+                print(f"  [Variant-{key}] Initialized from checkpoint: {init_cslr_ckpt}")
+                if missing:
+                    print(f"    missing keys    : {len(missing)}")
+                if unexpected:
+                    print(f"    unexpected keys : {len(unexpected)}")
 
         n_total     = sum(p.numel() for p in cslr_model.parameters())
         n_trainable = sum(p.numel() for p in cslr_model.parameters() if p.requires_grad)
@@ -985,12 +1042,16 @@ def run_ablation(cfg, variants_to_run, best_encoder=None, best_seq=None, cslr_ck
 
     # ── Summary ───────────────────────────────────────────────────────────────
     enc_labels = {
-        "cnn_2d":     "ResNet18-2D",
+        "cnn_2d":     "ResNet34-2D",
         "cnn_3d":     "R3D-18",
         "mediapipe":  "MediaPipe-TCN",
         "video_swin": "Video Swin-T",
     }
-    seq_labels = {"bilstm": "BiLSTM", "transformer": "Transformer CTC"}
+    seq_labels = {
+        "bilstm": "BiLSTM",
+        "transformer": "Transformer CTC",
+        "conformer": "Conformer CTC",
+    }
 
     if cslr_results:
         print(f"\n{'='*72}")
@@ -1025,11 +1086,6 @@ def run_ablation(cfg, variants_to_run, best_encoder=None, best_seq=None, cslr_ck
     print(f"\nFull results → {results_path}")
     return all_results
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# Entry point
-# ══════════════════════════════════════════════════════════════════════════════
-
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="CSLT Ablation Study v2")
     parser.add_argument("--config",       default="configs/config.yaml")
@@ -1037,6 +1093,8 @@ if __name__ == "__main__":
     parser.add_argument("--best_encoder", default=None)
     parser.add_argument("--best_seq",     default=None)
     parser.add_argument("--cslr_ckpt",   default=None)
+    parser.add_argument("--init_cslr_ckpt", default=None,
+                        help="Optional CSLR checkpoint to initialize model weights before training")
     args = parser.parse_args()
 
     with open(args.config) as f:
@@ -1058,4 +1116,5 @@ if __name__ == "__main__":
     run_ablation(cfg, variants,
                  best_encoder=args.best_encoder,
                  best_seq=args.best_seq,
-                 cslr_ckpt=args.cslr_ckpt)
+                 cslr_ckpt=args.cslr_ckpt,
+                 init_cslr_ckpt=args.init_cslr_ckpt)

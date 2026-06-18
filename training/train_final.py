@@ -1,27 +1,4 @@
 # -*- coding: utf-8 -*-
-"""
-final_system/train_final.py
-----------------------------
-Unified CSLR ? SLT training pipeline for thesis report.
-
-Supported pipelines:
-    --encoder resnet34  ?  ResNet34-2D + BiLSTM (Variant A) ? SLT (Variant Y)
-    --encoder swin      ?  Video Swin-T + BiLSTM (Variant G) ? SLT (Variant Y)
-
-Usage:
-    # Full pipeline (CSLR then SLT automatically):
-    python final_system/train_final.py --config final_system/config_resnet34.yaml --encoder resnet34
-
-    # CSLR only (skip SLT):
-    python final_system/train_final.py --config final_system/config_resnet34.yaml --encoder resnet34 --stage cslr
-
-    # SLT only (provide existing CSLR checkpoint):
-    python final_system/train_final.py --config final_system/config_resnet34.yaml --encoder resnet34 --stage slt --cslr_ckpt path/to/best_cslr.pth
-
-    # Resume CSLR from latest checkpoint (auto-detected):
-    python final_system/train_final.py --config final_system/config_resnet34.yaml --encoder resnet34 --stage all
-"""
-
 import sys
 import gc
 import json
@@ -31,7 +8,6 @@ import math
 import time
 import yaml
 from pathlib import Path
-from typing import Optional
 
 import numpy as np
 import torch
@@ -233,116 +209,6 @@ def build_slt_model(cfg, gloss_vocab_size: int, text_vocab_size: int,
     return CSLTModel()
 
 
-def build_dual_slt_model(
-    cfg, gloss_vocab_size: int, text_vocab_size: int,
-    primary_cslr: nn.Module, secondary_cslr: nn.Module,
-) -> nn.Module:
-    """
-    Build SLT model with dual-encoder fusion.
-    Primary = Swin CSLR, Secondary = ResNet34 CSLR.
-    Both CSLR models are frozen; their hidden states are fused via
-    DualEncoderFusion before being passed through LateFusion + Translator.
-    """
-    from models.late_fusion          import LateFusion, GlossEmbedding
-    from models.translator           import SLTTransformer
-    from models.dual_encoder_fusion  import DualEncoderFusion
-
-    # Hidden dims from the two CSLR seq_models
-    dim1 = primary_cslr.seq_model.hidden_out_dim
-    dim2 = secondary_cslr.seq_model.hidden_out_dim
-
-    dc = cfg.get("dual_fusion", {})
-    dual_fuse = DualEncoderFusion(
-        dim1      = dim1,
-        dim2      = dim2,
-        fused_dim = dc.get("fused_dim", 512),
-        mode      = dc.get("fusion_mode", "gate"),
-        dropout   = dc.get("dropout", 0.15),
-    )
-    dual_out_dim = dc.get("fused_dim", 512)
-
-    fc          = cfg["fusion"]
-    gloss_embed = GlossEmbedding(gloss_vocab_size, fc["gloss_embed_dim"])
-    late_fusion = LateFusion(
-        visual_dim      = dual_out_dim,
-        gloss_embed_dim = fc["gloss_embed_dim"],
-        fused_dim       = fc["fused_dim"],
-        mode            = fc["mode"],
-        dropout         = fc["dropout"],
-        nhead           = fc.get("nhead", 8),
-    )
-    fused_dim = fc["fused_dim"]
-
-    c = cfg["transformer_2d"]
-    translator = SLTTransformer(
-        src_dim            = fused_dim,
-        tgt_vocab_size     = text_vocab_size,
-        d_model            = c["d_model"],
-        nhead              = c["nhead"],
-        num_encoder_layers = c["num_encoder_layers"],
-        num_decoder_layers = c["num_decoder_layers"],
-        dim_feedforward    = c["dim_feedforward"],
-        dropout            = c["dropout"],
-        max_seq_len        = c["max_seq_len"],
-    )
-
-    blank_idx = cfg["cslr"]["ctc_blank_idx"]
-
-    class DualCSLTModel(nn.Module):
-        def __init__(self):
-            super().__init__()
-            self.cslr1       = primary_cslr      # Swin (frozen)
-            self.cslr2       = secondary_cslr    # ResNet34 (frozen)
-            self.dual_fuse   = dual_fuse
-            self.gloss_embed = gloss_embed
-            self.late_fusion = late_fusion
-            self.translator  = translator
-
-        def _get_dual_hidden(self, frames, frame_lens):
-            """Extract and fuse hidden states from both CSLR encoders."""
-            with torch.no_grad():
-                _, h1, lens1 = self.cslr1(frames, frame_lens)
-                _, h2, lens2 = self.cslr2(frames, frame_lens)
-            fused_vis, fused_lens = self.dual_fuse(h1, h2, lens1, lens2)
-            return fused_vis, fused_lens
-
-        def _get_primary_gloss(self, frames, frame_lens):
-            """Get gloss predictions from primary CSLR for translate()."""
-            with torch.no_grad():
-                log_probs, _, adj_lens = self.cslr1(frames, frame_lens)
-            T_out = log_probs.size(0)
-            return batch_ctc_decode(
-                log_probs, adj_lens.clamp(max=T_out),
-                blank_idx=blank_idx, mode="greedy",
-            )
-
-        def forward(self, frames, frame_lens, gloss, gloss_lens, tgt, tgt_lens):
-            fused_vis, fused_lens = self._get_dual_hidden(frames, frame_lens)
-            gloss_emb = self.gloss_embed(gloss)
-            fused     = self.late_fusion(fused_vis, gloss_emb)
-            return self.translator(fused, tgt, fused_lens, tgt_lens)
-
-        @torch.no_grad()
-        def translate(self, frames, frame_lens, bos_idx, eos_idx):
-            fused_vis, fused_lens = self._get_dual_hidden(frames, frame_lens)
-            pred_gloss_ids = self._get_primary_gloss(frames, frame_lens)
-
-            device = frames.device
-            max_g  = max((len(g) for g in pred_gloss_ids), default=1)
-            max_g  = max(max_g, 1)
-            eff_gloss = torch.zeros(frames.size(0), max_g, dtype=torch.long, device=device)
-            for b, pred in enumerate(pred_gloss_ids):
-                if pred:
-                    t = torch.tensor(pred[:max_g], dtype=torch.long, device=device)
-                    eff_gloss[b, :len(t)] = t
-
-            gloss_emb = self.gloss_embed(eff_gloss)
-            fused     = self.late_fusion(fused_vis, gloss_emb)
-            return self.translator.greedy_decode(fused, bos_idx, eos_idx, fused_lens)
-
-    return DualCSLTModel()
-
-
 # ------------------------------------------------------------------------------
 # LR Schedulers
 # ------------------------------------------------------------------------------
@@ -538,10 +404,6 @@ def train_cslr(
         milestones = c.get("lr_decay_epochs", [30, 38])
         gamma      = c.get("lr_decay_rate", 0.2)
         if warmup_ep > 0:
-            # Linear warmup for warmup_ep epochs, then MultiStepLR
-            # FIX: MultiStepLR internal counter starts from 0 when SequentialLR
-            # hands off at epoch `warmup_ep`, so milestones must be shifted by
-            # -warmup_ep to match the global epoch numbers in the config.
             from torch.optim.lr_scheduler import SequentialLR, LinearLR
             adjusted_milestones = [max(1, m - warmup_ep) for m in milestones]
             warmup_sched = LinearLR(optimizer, start_factor=0.01,
@@ -618,9 +480,6 @@ def train_cslr(
                 for _ in range(global_step):
                     scheduler.step()
             else:
-                # Warmup already passed; rebuild a plain MultiStepLR with the
-                # original (unadjusted) milestones and fast-forward to current
-                # epoch so future decay steps fire at the correct global epochs.
                 scheduler = step_scheduler(optimizer, c.get("lr_decay_epochs", [30, 38]),
                                            c.get("lr_decay_rate", 0.2))
                 for _ in range(epoch):
@@ -750,7 +609,6 @@ def train_slt(
     text_vocab,
     ckpt_dir:     Path,
     seed:         int = 42,
-    secondary_cslr: Optional[nn.Module] = None,
 ) -> float:
     """
     Train SLT (LateFusion + Transformer-2D).
@@ -767,27 +625,13 @@ def train_slt(
     # Freeze CSLR backbone(s) completely
     for p in cslr_model.parameters():
         p.requires_grad = False
-    if secondary_cslr is not None:
-        for p in secondary_cslr.parameters():
-            p.requires_grad = False
 
-    # Build model: dual-encoder or single-encoder
-    dc = cfg.get("dual_fusion", {})
-    use_dual = dc.get("enabled", False) and secondary_cslr is not None
-    if use_dual:
-        print("  [Dual-Encoder] Fusing primary + secondary CSLR hidden states")
-        model = build_dual_slt_model(
-            cfg, len(gloss_vocab), len(text_vocab), cslr_model, secondary_cslr
-        ).to(device)
-    else:
-        model = build_slt_model(cfg, len(gloss_vocab), len(text_vocab), cslr_model).to(device)
+    model = build_slt_model(cfg, len(gloss_vocab), len(text_vocab), cslr_model).to(device)
 
     n_train = sum(p.numel() for p in model.parameters() if p.requires_grad)
     n_frz   = sum(p.numel() for p in model.parameters() if not p.requires_grad)
-    fusion_label = "DualEncoderFusion + LateFusion + Translator" if use_dual else "LateFusion + Translator"
-    backbone_label = "CSLR backbones (Swin + ResNet34)" if use_dual else "CSLR backbone"
-    print(f"  Params trainable : {n_train:,}  ({fusion_label})")
-    print(f"  Params frozen    : {n_frz:,}   ({backbone_label})")
+    print(f"  Params trainable : {n_train:,}  (LateFusion + Translator)")
+    print(f"  Params frozen    : {n_frz:,}   (CSLR backbone)")
 
     train_loader = make_loader("train", True, cfg, gloss_vocab, text_vocab, encoder_type, seed)
     dev_loader   = make_loader("dev",   True, cfg, gloss_vocab, text_vocab, encoder_type, seed)
@@ -1033,15 +877,13 @@ def evaluate_test(cfg, cslr_ckpt_path: Path, slt_ckpt_path: Path,
 def main():
     parser = argparse.ArgumentParser(description="Final CSLR->SLT Pipeline")
     parser.add_argument("--config",    required=True,
-                        help="Path to config yaml (config_resnet34.yaml or config_swin.yaml)")
+                        help="Path to config yaml (configs/config.yaml or configs/config_resnet34.yaml)")
     parser.add_argument("--encoder",   required=True, choices=["resnet34", "swin"],
                         help="Visual encoder type")
     parser.add_argument("--stage",     default="all", choices=["all", "cslr", "slt", "eval"],
                         help="Which stage to run")
     parser.add_argument("--cslr_ckpt", default=None,
                         help="Pre-trained CSLR checkpoint (for SLT-only or eval)")
-    parser.add_argument("--dual_cslr_ckpt", default=None,
-                        help="Secondary CSLR checkpoint for dual-encoder fusion (e.g., ResNet34 ckpt when primary is Swin)")
     parser.add_argument("--slt_ckpt",  default=None,
                         help="Pre-trained SLT checkpoint (for eval-only)")
     parser.add_argument("--seed",      type=int, default=42)
@@ -1083,14 +925,6 @@ def main():
     if args.slt_ckpt:
         best_slt_ckpt = Path(args.slt_ckpt)
 
-    # Resolve secondary CSLR checkpoint for dual-encoder fusion
-    dc = cfg.get("dual_fusion", {})
-    dual_cslr_path = None
-    if args.dual_cslr_ckpt:
-        dual_cslr_path = Path(args.dual_cslr_ckpt)
-    elif dc.get("enabled", False) and dc.get("resnet34_cslr_ckpt"):
-        dual_cslr_path = Path(dc["resnet34_cslr_ckpt"])
-
     t_start = time.time()
 
     # -- CSLR Stage -------------------------------------------------------------
@@ -1112,24 +946,9 @@ def main():
             cslr_model.load_state_dict(ck["model"])
             cslr_model.to(device)
 
-        # Load secondary CSLR for dual-encoder fusion if configured
-        secondary_cslr = None
-        if dual_cslr_path is not None and dual_cslr_path.exists():
-            # Determine secondary encoder type (opposite of primary)
-            sec_encoder = "resnet34" if args.encoder == "swin" else "swin"
-            print(f"\nLoading secondary CSLR ({sec_encoder}) from {dual_cslr_path}")
-            ck2 = torch.load(dual_cslr_path, map_location="cpu", weights_only=False)
-            secondary_cslr = build_cslr_model(cfg, len(gloss_vocab), sec_encoder)
-            secondary_cslr.load_state_dict(ck2["model"])
-            secondary_cslr.to(device)
-        elif dual_cslr_path is not None:
-            print(f"\n[WARNING] Dual CSLR checkpoint not found: {dual_cslr_path}")
-            print(f"          Falling back to single-encoder SLT.")
-
         best_bleu = train_slt(
             cfg, cslr_model, args.encoder, device,
             gloss_vocab, text_vocab, slt_dir, seed,
-            secondary_cslr=secondary_cslr,
         )
         torch.cuda.empty_cache(); gc.collect()
 

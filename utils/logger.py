@@ -1,5 +1,3 @@
-
-
 import csv
 import sys
 import logging

@@ -1,23 +1,3 @@
-"""
-training/train_cslr.py  [v2 — Fixed]
-──────────────────────────────────────
-Fixes vs v1:
-  [F1] CSLRModel.__init__: Đọc đúng config section.
-       cfg["cslr"]["hidden_size"]    → cfg["bilstm"]["hidden_size"]
-       cfg["cslr"]["num_layers"]     → cfg["bilstm"]["num_layers"]
-       cfg["cslr"]["dropout"]        → cfg["bilstm"]["dropout"]
-       cfg["cslr"]["projection_size"]→ cfg["bilstm"]["projection_size"]
-  [F2] Unified LR schedule: Thay thế manual warmup + CosineAnnealingLR
-       bằng một LambdaLR cosine-with-warmup duy nhất (giống ablation script).
-       Tránh double-apply warmup gây LR spike.
-  [F3] Gradient Accumulation: train_one_epoch hỗ trợ grad_accumulation_steps.
-  [F4] Differential LR: encoder_lr_scale × base_lr cho pretrained CNN,
-       base_lr cho BiLSTM (encoder cần LR nhỏ hơn để tránh catastrophic forgetting).
-  [F5] Early Stopping: Theo dõi val_WER, dừng sớm nếu không cải thiện.
-  [F6] Reproducibility: set_seed() và DataLoader generator/worker_init_fn.
-  [F7] Best checkpoint restore: Load lại best model sau khi training kết thúc.
-"""
-
 import random
 import sys
 import argparse
@@ -43,11 +23,6 @@ from models.bilstm_ctc  import BiLSTM_CTC, CTCCriterion
 from utils.ctc_decoder  import batch_ctc_decode
 from utils.metrics      import compute_wer
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# [F6] Reproducibility
-# ══════════════════════════════════════════════════════════════════════════════
-
 def set_seed(seed: int = 42):
     random.seed(seed)
     np.random.seed(seed)
@@ -62,22 +37,7 @@ def _worker_init_fn(worker_id: int):
     np.random.seed(worker_seed)
     random.seed(worker_seed)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# CSLR Model — ResNet18-2D + BiLSTM (Baseline)
-# ══════════════════════════════════════════════════════════════════════════════
-
 class CSLRModel(nn.Module):
-    """
-    Baseline CSLR model: 2D-CNN frame encoder + BiLSTM-CTC sequence model.
-
-    Input  : frames (B, T, C, H, W), frame_lens (B,)
-    Output : log_probs (T, B, num_classes), hidden (B, T, proj_dim)
-
-    [F1] FIX: Đọc từ cfg["bilstm"] thay vì cfg["cslr"] cho các model hyperparams.
-    Section cfg["cslr"] chỉ chứa training hyperparams (lr, batch_size, epochs...).
-    Section cfg["bilstm"] chứa model hyperparams (hidden_size, num_layers, ...).
-    """
 
     def __init__(self, cfg: dict, num_classes: int):
         super().__init__()
@@ -107,19 +67,10 @@ class CSLRModel(nn.Module):
         frames:     torch.Tensor,   # (B, T, C, H, W)
         frame_lens: torch.Tensor,   # (B,)
     ):
-        """
-        Returns:
-            log_probs : (T, B, num_classes)
-            hidden    : (B, T, proj_dim=256)
-        """
+
         feats = self.cnn(frames)                           # (B, T, 512)
         log_probs, hidden = self.bilstm_ctc(feats, frame_lens)
         return log_probs, hidden
-
-
-# ══════════════════════════════════════════════════════════════════════════════
-# [F2] Unified cosine-with-warmup LR schedule
-# ══════════════════════════════════════════════════════════════════════════════
 
 def get_cosine_schedule_with_warmup(
     optimizer:           torch.optim.Optimizer,
@@ -127,10 +78,7 @@ def get_cosine_schedule_with_warmup(
     num_training_steps:  int,
     eta_min_ratio:       float = 0.0,   # eta_min = eta_min_ratio × base_lr
 ) -> LambdaLR:
-    """
-    Linear warmup → cosine decay.
-    Thay thế cặp (manual warmup_lr + CosineAnnealingLR) bằng một scheduler duy nhất.
-    """
+
     def lr_lambda(current_step: int) -> float:
         if current_step < num_warmup_steps:
             # Linear warmup: 0 → 1.0
@@ -143,17 +91,8 @@ def get_cosine_schedule_with_warmup(
 
     return LambdaLR(optimizer, lr_lambda)
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# [F4] Differential LR optimizer
-# ══════════════════════════════════════════════════════════════════════════════
-
 def build_optimizer(model: CSLRModel, cfg: dict) -> AdamW:
-    """
-    Tách param groups:
-      - CNN encoder  : lr = base_lr × encoder_lr_scale (nhỏ hơn, tránh forgetting)
-      - BiLSTM + CTC : lr = base_lr (học nhanh hơn vì khởi tạo random)
-    """
+
     c        = cfg["cslr"]
     base_lr  = c["learning_rate"]
     scale    = c.get("encoder_lr_scale", 0.1)
@@ -167,10 +106,6 @@ def build_optimizer(model: CSLRModel, cfg: dict) -> AdamW:
     ]
     return AdamW(param_groups, weight_decay=c["weight_decay"])
 
-
-# ══════════════════════════════════════════════════════════════════════════════
-# [F3] Train one epoch — với Gradient Accumulation
-# ══════════════════════════════════════════════════════════════════════════════
 
 def train_one_epoch(
     model:       CSLRModel,

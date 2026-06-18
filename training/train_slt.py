@@ -1,37 +1,3 @@
-"""
-training/train_slt.py  [v2 — Fixed]
-──────────────────────────────────────
-Fixes vs v1:
-  [F1] CSLTModel.__init__: Đọc đúng config sections.
-       cfg["cslr"]["hidden_size"]     → cfg["bilstm"]["hidden_size"]
-       cfg["cslr"]["projection_size"] → cfg["bilstm"]["projection_size"]
-       cfg["slt"]["d_model"]          → cfg["transformer_2d"]["d_model"]
-       cfg["slt"]["nhead"]            → cfg["transformer_2d"]["nhead"]
-       cfg["slt"]["num_encoder_layers"]→ cfg["transformer_2d"]["num_encoder_layers"]
-       cfg["slt"]["num_decoder_layers"]→ cfg["transformer_2d"]["num_decoder_layers"]
-       cfg["slt"]["dim_feedforward"]  → cfg["transformer_2d"]["dim_feedforward"]
-       cfg["slt"]["dropout"]          → cfg["transformer_2d"]["dropout"]
-       cfg["slt"]["max_seq_len"]      → cfg["transformer_2d"]["max_seq_len"]
-
-  [F2] Oracle Gloss Leakage: CSLTModel.translate() không còn nhận raw gloss
-       annotation. Thay vào đó tự decode predicted gloss từ CTC output.
-       - Trong eval: dùng predicted gloss (inference thực tế).
-       - use_oracle_gloss=True chỉ để phân tích upper bound.
-
-  [F3] Gradient Accumulation: train loop hỗ trợ grad_accumulation_steps.
-
-  [F4] Unified cosine-with-warmup LR (step-level), thay CosineAnnealingLR.
-
-  [F5] Early Stopping dựa trên BLEU-4 validation.
-
-  [F6] Reproducibility: set_seed(), DataLoader generator, worker_init_fn.
-
-  [F7] Best checkpoint restore sau khi training kết thúc.
-
-  [F8] Forward pass sử dụng adj_lens (adjusted frame lengths sau CSLR encoding)
-       thay vì raw frame_lens khi gọi translator.
-"""
-
 import random
 import sys
 import argparse
@@ -83,26 +49,6 @@ def _worker_init_fn(worker_id: int):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class CSLTModel(nn.Module):
-    """
-    Full Continuous Sign Language Translation model.
-
-    Pipeline:
-        frames → [Frozen CSLRModel] → visual_hidden (B, T, proj_dim)
-                                    ↓
-        gloss_ids → [GlossEmbedding] → gloss_emb (B, G, gloss_embed_dim)
-                                    ↓
-                          [LateFusion (Cross-Attention)]
-                                    ↓
-                           fused (B, T, fused_dim)
-                                    ↓
-                          [SLTTransformer (Enc-Dec)]
-                                    ↓
-                           logits (B, S, vocab_size)
-
-    [F1] FIX: Tất cả model hyperparams đọc từ đúng section trong config.
-    [F2] FIX: translate() dùng predicted gloss từ CTC, không phải oracle.
-    [F8] FIX: Dùng adj_lens (sau CSLR) làm src_lengths cho translator.
-    """
 
     def __init__(self, cfg: dict, gloss_vocab_size: int, text_vocab_size: int):
         super().__init__()
@@ -199,23 +145,7 @@ class CSLTModel(nn.Module):
         use_oracle_gloss: bool          = False,
         oracle_gloss:     torch.Tensor  = None,     # (B, G) — chỉ cần nếu use_oracle_gloss=True
     ) -> torch.Tensor:
-        """
-        Autoregressive translation tại inference.
 
-        [F2] FIX Oracle Gloss Leakage:
-          - use_oracle_gloss=False (default): Decode predicted gloss từ CTC output
-            → đây là inference thực tế, không có information leakage.
-          - use_oracle_gloss=True: Dùng ground-truth gloss annotation
-            → chỉ để phân tích upper bound, KHÔNG dùng để report kết quả paper.
-
-        Args:
-            frames           : input video frames
-            frame_lens       : actual frame lengths per sample
-            bos_idx          : begin-of-sequence token index
-            eos_idx          : end-of-sequence token index
-            use_oracle_gloss : True → dùng oracle_gloss (upper bound analysis)
-            oracle_gloss     : ground-truth gloss tensor (chỉ cần khi use_oracle_gloss=True)
-        """
         # Step 1: CSLR forward — lấy log_probs và visual_hidden
         log_probs, visual_hidden = self.cslr(frames, frame_lens)
         # log_probs    : (T, B, num_classes)
@@ -268,15 +198,7 @@ class CSLTModel(nn.Module):
 # ══════════════════════════════════════════════════════════════════════════════
 
 class LabelSmoothedCE(nn.Module):
-    """
-    Cross-entropy với label smoothing, bỏ qua padding positions.
 
-    Input:
-        logits : (B, T, vocab_size)
-        targets: (B, T)
-    Output:
-        scalar loss
-    """
     def __init__(self, label_smoothing: float = 0.1, pad_idx: int = 1):
         super().__init__()
         self.criterion = nn.CrossEntropyLoss(
@@ -314,16 +236,7 @@ def get_cosine_schedule_with_warmup(
 # ══════════════════════════════════════════════════════════════════════════════
 
 def train_slt(cfg: dict, cslr_ckpt_path: str) -> float:
-    """
-    Train SLT stage (Late Fusion + Transformer decoder).
 
-    Args:
-        cfg            : config dict
-        cslr_ckpt_path : path đến best_cslr.pth
-
-    Returns:
-        best_bleu (float) — BLEU-4 trên dev set với predicted gloss
-    """
     # [F6] Set seed
     seed = cfg.get("seed", 42)
     set_seed(seed)
